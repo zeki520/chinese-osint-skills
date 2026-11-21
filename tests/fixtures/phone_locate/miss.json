@@ -1,6 +1,6 @@
 {
   "case": "miss-and-invalid",
-  "note": "1399999 不在本地号段库：match=none、confidence=low、必须带携号转网 caveat，且不回退到相邻号段；12345 不是 11 位手机号：match=invalid、valid=false。exit=1（有不合格记录）。",
+  "note": "1399999 不在本地号段库：match=none、confidence=low、必须带携号转网 caveat，且不回退到相邻号段；12345 不是 11 位手机号：match=invalid、valid=false。exit=3（部分输入无法产出正常记录）。",
   "dat": {
     "version": "2024",
     "encoding": "utf-8",
@@ -8,7 +8,7 @@
   },
   "args": [],
   "queries": ["13999990000", "12345"],
-  "expect_exit": 1,
+  "expect_exit": 3,
   "expect": [
     {
       "input": "13999990000",
