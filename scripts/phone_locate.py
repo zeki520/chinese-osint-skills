@@ -75,6 +75,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _codes import Exit, emit, force_utf8_streams  # noqa: E402  退出码契约与本脚本同目录
+
 __all__ = ["PhoneDat", "PhoneDatError", "LookupResult", "lookup", "find_database"]
 
 HEADER_SIZE = 8
@@ -438,8 +441,7 @@ def _iter_inputs(args: argparse.Namespace) -> Iterable[str]:
         try:
             text = Path(args.input).read_text(encoding="utf-8-sig")
         except OSError as exc:
-            print(f"错误：读取 --input 失败：{exc}", file=sys.stderr)
-            raise SystemExit(2) from exc
+            raise SystemExit(emit(Exit.USAGE, f"读取 --input 失败：{exc}")) from exc
         for line in text.splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
@@ -451,24 +453,8 @@ def _iter_inputs(args: argparse.Namespace) -> Iterable[str]:
                 yield line
 
 
-def _force_utf8_streams() -> None:
-    """把 stdout/stderr 钉成 UTF-8。
-
-    Windows 控制台代码页（cp936 等）会把中文输出按 GBK 写进管道，下游按 UTF-8 读
-    就炸；JSONL 消费者不该关心终端设置。
-    """
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
-            reconfigure(encoding="utf-8", errors="backslashreplace")
-        except (ValueError, OSError):
-            pass
-
-
 def main(argv: list[str] | None = None) -> int:
-    _force_utf8_streams()
+    force_utf8_streams()
     parser = argparse.ArgumentParser(
         prog="phone_locate.py",
         description="离线手机号号段归属地查询（phone.dat → JSONL）",
@@ -484,14 +470,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         db = PhoneDat(find_database(args.db))
     except PhoneDatError as exc:
-        print(f"错误：{exc}", file=sys.stderr)
-        return 2
+        return emit(Exit.DEPENDENCY_MISSING, str(exc))
 
     if args.prefix:
         prefix = "".join(ch for ch in args.prefix if ch.isdigit())
         if len(prefix) != 7:
-            print("错误：--prefix 需要 7 位数字号段", file=sys.stderr)
-            return 2
+            return emit(Exit.USAGE, "--prefix 需要 7 位数字号段")
 
     out_handle = None
     try:
@@ -510,30 +494,33 @@ def main(argv: list[str] | None = None) -> int:
             record = _prefix_record(db, prefix)
             sink.write(json.dumps(record, ensure_ascii=False) + "\n")
             sink.flush()
-            return 0 if record["match"] == "exact" else 1
+            return Exit.OK if record["match"] == "exact" else Exit.PARTIAL
 
         total = 0
-        ok = 0
+        usable = 0
+        located = 0
         for value in _iter_inputs(args):
             record = _augment(db.lookup(value).to_dict(), db=db)
             sink.write(json.dumps(record, ensure_ascii=False) + "\n")
             total += 1
+            # 进程级成功看「这条输入是不是一个号码」；命不命中的是数据质量。
+            if record["match"] != "invalid":
+                usable += 1
             if record["match"] == "exact" and record["confidence"]["level"] != "low":
-                ok += 1
+                located += 1
         sink.flush()
     finally:
         if out_handle is not None:
             out_handle.close()
 
     if total == 0:
-        print("错误：没有输入（stdin 为空，也未给位置参数或 --input）", file=sys.stderr)
-        return 2
+        return emit(Exit.USAGE, "没有输入（stdin 为空，也未给位置参数或 --input）")
     print(
-        f"共 {total} 条，可定位 {ok}，未命中或低置信 {total - ok}"
+        f"共 {total} 条，可定位 {located}，未命中或低置信 {total - located}"
         f"（数据版本 {db.version}，{db.path.name}，{len(db)} 条号段）",
         file=sys.stderr,
     )
-    return 0 if ok == total else 1
+    return Exit.OK if usable == total else Exit.PARTIAL
 
 
 if __name__ == "__main__":

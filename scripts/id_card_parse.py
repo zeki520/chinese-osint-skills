@@ -79,6 +79,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _codes import Exit, emit, force_utf8_streams  # noqa: E402  退出码契约与本脚本同目录
+
 __all__ = [
     "DivisionHit",
     "DivisionIndex",
@@ -1084,8 +1087,7 @@ def _iter_inputs(args: argparse.Namespace) -> Iterable[str]:
         try:
             text = Path(args.input).read_text(encoding="utf-8-sig")
         except OSError as exc:
-            print(f"错误：读取 --input 失败：{exc}", file=sys.stderr)
-            raise SystemExit(2) from exc
+            raise SystemExit(emit(Exit.USAGE, f"读取 --input 失败：{exc}")) from exc
         for line in text.splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
@@ -1097,24 +1099,8 @@ def _iter_inputs(args: argparse.Namespace) -> Iterable[str]:
                 yield line
 
 
-def _force_utf8_streams() -> None:
-    """把 stdout/stderr 钉成 UTF-8。
-
-    Windows 控制台代码页（cp936 等）会让 json.dumps(ensure_ascii=False) 的中文以 GBK
-    写进管道，下游按 UTF-8 读就炸。JSONL 是给机器读的，必须与终端设置无关。
-    """
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
-            continue
-        try:
-            reconfigure(encoding="utf-8", errors="backslashreplace")
-        except (ValueError, OSError):  # 已分离/被替换的流
-            pass
-
-
 def main(argv: list[str] | None = None) -> int:
-    _force_utf8_streams()
+    force_utf8_streams()
     parser = argparse.ArgumentParser(
         prog="id_card_parse.py",
         description="18 位身份证解析 + 按出生年份窗口核对历史行政区划（JSONL 输出）",
@@ -1138,15 +1124,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.span < 0 or args.span > 120:
-        print("错误：--span 需在 0..120 之间", file=sys.stderr)
-        return 2
+        return emit(Exit.USAGE, "--span 需在 0..120 之间")
 
     if args.divisions:
         try:
             index = DivisionIndex.from_file(args.divisions)
         except (OSError, ValueError, KeyError) as exc:
-            print(f"错误：加载 --divisions 失败：{exc}", file=sys.stderr)
-            return 2
+            return emit(Exit.DEPENDENCY_MISSING, f"加载 --divisions 失败：{exc}", path=args.divisions)
     else:
         index = DivisionIndex.builtin_index()
 
@@ -1163,27 +1147,31 @@ def main(argv: list[str] | None = None) -> int:
             sink = sys.stdout
 
         total = 0
-        passed = 0
+        usable = 0
+        resolved = 0
         for value in _iter_inputs(args):
             record = parse_id(value, issue_year=args.issue_year, span=args.span, index=index)
             sink.write(json.dumps(record, ensure_ascii=False) + "\n")
             total += 1
-            if record["level"] == "ok":
-                passed += 1
+            # 进程级成功只看「这条输入是不是一个能解析的身份证号」；
+            # 地址是否定位到区县属于结果质量，已写在 record.address.status 里。
+            if record["valid_format"] and record["checksum_ok"]:
+                usable += 1
+            if (record.get("address") or {}).get("status") == "resolved":
+                resolved += 1
         sink.flush()
     finally:
         if out_handle is not None:
             out_handle.close()
 
     if total == 0:
-        print("错误：没有输入（stdin 为空，也未给位置参数或 --input）", file=sys.stderr)
-        return 2
+        return emit(Exit.USAGE, "没有输入（stdin 为空，也未给位置参数或 --input）")
     print(
-        f"共 {total} 条，ok={passed}，非 ok={total - passed}"
+        f"共 {total} 条，结构与校验通过 {usable}，地址已定位到区县 {resolved}"
         f"（数据集 {index.name}，覆盖 {index.coverage}）",
         file=sys.stderr,
     )
-    return 0 if passed == total else 1
+    return Exit.OK if usable == total else Exit.PARTIAL
 
 
 if __name__ == "__main__":
