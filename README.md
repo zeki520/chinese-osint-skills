@@ -119,6 +119,7 @@ chinese-osint-skills/
 ├── .github/
 │   └── copilot-instructions.md       # GitHub Copilot
 ├── scripts/
+│   ├── _codes.py                     # 退出码契约（全脚本共用）
 │   ├── qq_avatar.py                  # QQ头像获取
 │   ├── qq_info.py                    # QQ详细信息（注册时间、等级、昵称）
 │   ├── avatar_analysis.py            # 头像像素分析（真人/插画判断）
@@ -128,10 +129,12 @@ chinese-osint-skills/
 │   └── phone_locate.py               # 手机号归属地（phone.dat）
 ├── docs/
 │   ├── platform-traps.md             # 各平台反爬陷阱详解
+│   ├── exit-codes.md                 # 退出码契约与重试策略
 │   ├── id-card.md                    # 身份证 18 位解析规范与历史区划问题
 │   └── public-records.md             # 官方公开源清单（按地址精度分级）
 └── tests/
     ├── run-fixtures.py               # 标准库夹具 runner
+    ├── test_codes.py                 # 退出码契约单元测试
     └── fixtures/                     # 合成数据夹具
 ```
 

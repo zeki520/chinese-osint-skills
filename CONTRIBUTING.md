@@ -92,6 +92,20 @@ import sys
 - 输出必须带 `dataVersion` / `observed_at` 一类字段，让使用者能判断结论是否过期
 - 数据缺失时**报错退出**，不要静默返回空结果
 
+### 2.3 退出码契约（硬性）
+
+`scripts/` 下所有脚本必须遵守 [`docs/exit-codes.md`](docs/exit-codes.md)，实现见 `scripts/_codes.py`。
+
+三条底线：
+
+- **不许用 `exit 1`**。`1` 代表「未分类」，它的出现就等于某处没接契约。所有失败路径改用 `_codes.Exit` 里登记的码。
+- **`main()` 第一行调 `force_utf8_streams()`**。Windows 控制台 cp936 下 `print("✅")` 会抛 `UnicodeEncodeError`，会直接打崩管道。
+- **失败写结构化行**：`return emit(Exit.RATE_LIMITED, "触发限流", url=url)`，不要手写中文长句 —— 上层要能用 `json.loads` 取 `error.code`。
+
+判定语义：**进程退出码只回答「输入能不能被解析」，数据精度与不确定性写进 record**（`level` / `warnings[]` / `confidence.level`）。批量输入里有一条坏数据应回 `3`（`partial`）而不是崩溃；只有全部记录都无法解析才算失败。
+
+新增脚本的接入模板与 `classify_http()` 的完整判定表见 `docs/exit-codes.md`。改动契约本身（增删码）需要维护者拍板，不要在 PR 里静默改 `_codes.py` 的码值。
+
 ## 3. 文档约定
 
 - 放 `docs/`，文件名小写连字符（`platform-traps.md`、`id-card.md`、`public-records.md`）

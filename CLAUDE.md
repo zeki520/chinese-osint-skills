@@ -373,6 +373,29 @@ curl -s "https://api.bilibili.com/x/web-interface/card?mid=<mid>" \
 | 闲鱼 | goofish.com | 二手交易，暴露位置 |
 | 搜狗微信 | weixin.sogou.com | 搜公众号文章 |
 
+## 脚本退出码契约
+`scripts/` 下所有脚本共用 `scripts/_codes.py` 的退出码表，完整规范见 `docs/exit-codes.md`：
+
+| 码 | 契约名 | 含义 |
+|---:|---|---|
+| 0 | `ok` | 全部成功 |
+| 2 | `usage` | 参数或输入不合法（与 argparse 对齐） |
+| 3 | `partial` | 有结果，但有坏数据或未命中项 |
+| 10 | `not_authenticated` | 缺 cookie / token / API key |
+| 11 | `verification_required` | 验证码、人机校验、风控页（461 / 471 / 412） |
+| 12 | `rate_limited` | 频率限制（429） |
+| 13 | `ip_blocked` | 地域或 IP 黑名单 |
+| 14 | `signature_error` | 签名失败（`x-s` / `a_bogus` / `w_rid` / `-799`） |
+| 15 | `unsupported` | 接口不存在或平台不支持 |
+| 16 | `upstream_error` | 5xx，或回 200 但 body 是 HTML 风控页 |
+| 17 | `dependency_missing` | 缺第三方包、缺数据文件或文件损坏 |
+
+三条必须记住：
+
+- **不要用 `exit 1`**。1 = 未分类，出现即说明没接契约；失败一律走 `_codes.Exit` 与 `emit()`（stderr 单行 JSON）。
+- **进程码只判「输入能不能被解析」**。地址没定位到区县、归属地未命中都不算失败，不确定性写进 record 的 `level` / `warnings[]` / `confidence.level`；批处理里一条坏数据回 `3` 而不是崩。
+- **可重试的只有 12 / 13 / 16**。对 11（验证码 / 风控）连击会把 IP 直接打进黑名单。
+
 ## 环境依赖
 - **Playwright + playwright-stealth**（推荐，核心浏览器自动化工具）
 - **Maigret + Sherlock**（用于国际平台用户名枚举，pip install）
